@@ -152,12 +152,10 @@ class FanfictalkComAdapter(BaseSiteAdapter):
         # site doesn't group much.
         labels = soup.find_all('b')
         for labelspan in labels:
-            # logger.debug(labelspan)
+            #logger.debug(labelspan)
             value = labelspan.nextSibling
             label = stripHTML(labelspan)
-            # logger.debug(value)
-            # logger.debug(label)
-
+            #logger.debug(value)
             if 'Words:' in label:
                 stripHTML(value)
                 self.story.setMetadata('numWords', stripHTML(value).replace('·',''))
@@ -167,7 +165,13 @@ class FanfictalkComAdapter(BaseSiteAdapter):
 
             if 'Updated:' in label:
                 self.story.setMetadata('dateUpdated', makeDate(stripHTML(value).replace('·',''), self.dateformat))
-
+                
+            if 'Rating' in label:
+                logger.debug(value)
+                rating = stripHTML(value).replace(' (','')
+                logger.debug(rating)
+                self.story.setMetadata('rating', rating)    
+                
         # Site allows stories to be in several series at once.  FFF
         # isn't thrilled with that, we have series00, series01, etc.
         # Example:
