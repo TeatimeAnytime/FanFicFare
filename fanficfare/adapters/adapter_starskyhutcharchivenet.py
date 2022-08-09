@@ -16,7 +16,10 @@
 #
 
 from __future__ import absolute_import
-
+import logging
+logger = logging.getLogger(__name__)
+from ..htmlcleanup import stripHTML
+import re
 # Software: eFiction
 from .base_efiction_adapter import BaseEfictionAdapter
 
@@ -33,6 +36,25 @@ class StarskyHutchArchiveNetSiteAdapter(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%m/%d/%Y"
-
+    
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        #logger.debug(soup)
+        listbox = soup.find("div", attrs={"class": "listbox"})
+        labels = listbox.find_all(class_=re.compile("label"))
+        #logger.debug(listbox)
+        for label in labels:
+            #logger.debug(label)
+            if 'Rated:' in label or 'Rating:' in stripHTML(label):
+                rating = stripHTML(label.next_sibling)
+                if rating.endswith(' ['):
+                    rating = rating[:-2]
+                self.story.setMetadata('rating',rating)
+                break
+    
 def getClass():
     return StarskyHutchArchiveNetSiteAdapter

@@ -17,6 +17,8 @@
 
 # Software: eFiction
 from __future__ import absolute_import
+from ..htmlcleanup import stripHTML
+import re
 from .base_efiction_adapter import BaseEfictionAdapter
 
 class SinfulDreamsComWickedTemptation(BaseEfictionAdapter):
@@ -41,6 +43,33 @@ class SinfulDreamsComWickedTemptation(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%m/%d/%Y"
+    
+    @classmethod
+    def getProtocol(self):
+        """
+        Some, but not all site now require https.
+        """
+        return "https"
+    
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        #logger.debug(soup)
+        listbox = soup.find("div", attrs={"class": "listbox"})
+        labels = listbox.find_all(class_=re.compile("label"))
+        #logger.debug(listbox)
+        for label in labels:
+            #logger.debug(label)
+            if 'Rated:' in label or 'Rating:' in stripHTML(label):
+                rating = stripHTML(label.next_sibling)
+                if rating.endswith(' ['):
+                    rating = rating[:-2]
+                self.story.setMetadata('rating',rating)
+                break
+
 
 def getClass():
     return SinfulDreamsComWickedTemptation

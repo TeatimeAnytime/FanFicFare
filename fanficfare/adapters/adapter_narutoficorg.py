@@ -16,8 +16,8 @@
 #
 
 from __future__ import absolute_import
-
-# Software: eFiction
+import re
+from ..htmlcleanup import stripHTML
 from .base_efiction_adapter import BaseEfictionAdapter
 
 class NarutoFicOrgSiteAdapter(BaseEfictionAdapter):
@@ -33,6 +33,29 @@ class NarutoFicOrgSiteAdapter(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%d/%m/%y"
+    
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        for label in soup.select('div.listbox b'):
+            if 'Rated:' in label or 'Rating:' in stripHTML(label):
+                rating = stripHTML(label.next_sibling)
+                if rating.endswith(' ['):
+                    rating = rating[:-2]
+                self.story.setMetadata('rating',rating)
+                break
+            
+    def handleMetadataPair(self, key, value):
+        if 'Categories' in key:
+            for val in re.split(r"\s*,\s*", value):
+                for val1 in re.split(r"\s*>\s*", val):
+                    self.story.addToList('category', val1)
+        else:
+            super(NarutoFicOrgSiteAdapter, self).handleMetadataPair(key, value)
+
 
 def getClass():
     return NarutoFicOrgSiteAdapter

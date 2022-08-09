@@ -17,6 +17,7 @@
 
 # Software: eFiction
 from __future__ import absolute_import
+from ..htmlcleanup import stripHTML
 from .base_efiction_adapter import BaseEfictionAdapter
 
 class NaiceaNilmeNetAdapter(BaseEfictionAdapter):
@@ -32,6 +33,28 @@ class NaiceaNilmeNetAdapter(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%m/%d/%y"
+    
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        for label in soup.select('div.listbox b'):
+            if 'Rated:' in label or 'Rating:' in stripHTML(label):
+                rating = stripHTML(label.next_sibling)
+                if rating.endswith(' ['):
+                    rating = rating[:-2]
+                self.story.setMetadata('rating',rating)
+                break
+            
+    def handleMetadataPair(self, key, value):
+        if 'Language' in key:
+            self.story.setMetadata('language', value)
+            pass
+        else:
+            super(NaiceaNilmeNetAdapter, self).handleMetadataPair(key, value)
+
 
 def getClass():
     return NaiceaNilmeNetAdapter

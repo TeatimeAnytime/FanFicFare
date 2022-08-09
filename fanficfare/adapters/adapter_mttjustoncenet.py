@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 
 # Software: eFiction
+from ..htmlcleanup import stripHTML
 from .base_efiction_adapter import BaseEfictionAdapter
 
 class MTTJustOnceNetSiteAdapter(BaseEfictionAdapter):
@@ -37,6 +38,20 @@ class MTTJustOnceNetSiteAdapter(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%B %d, %Y"
+
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        for label in soup.select('div.listbox b'):
+            if 'Rated:' in label or 'Rating:' in stripHTML(label):
+                rating = stripHTML(label.next_sibling)
+                if rating.endswith(' ['):
+                    rating = rating[:-2]
+                self.story.setMetadata('rating',rating)
+                break
 
 def getClass():
     return MTTJustOnceNetSiteAdapter

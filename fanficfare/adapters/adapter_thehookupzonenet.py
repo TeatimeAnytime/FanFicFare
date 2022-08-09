@@ -17,6 +17,7 @@
 
 # Software: eFiction
 from __future__ import absolute_import
+from ..htmlcleanup import stripHTML
 from .base_efiction_adapter import BaseEfictionAdapter
 
 class TheHookupZoneNetAdapter(BaseEfictionAdapter):
@@ -43,6 +44,20 @@ class TheHookupZoneNetAdapter(BaseEfictionAdapter):
     @classmethod
     def getDateFormat(self):
         return "%d/%m/%y"
+    
+    def getRatingFromTOC(self):
+        # In many eFiction sites, the Rating is not included in
+        # print page, but is on the TOC page.  At least one site's rating
+        # (libraryofmoriacom) differs enough to be problematic.
+        toc = self.url + "&index=1"
+        soup = self.make_soup(self.get_request(toc))
+        pagetitleDiv = soup.find("div", {"id": "pagetitle"})
+        authorLink = pagetitleDiv.findAll("a")[1]
+        rating = authorLink.next_sibling.string
+        rating = rating.split(r'[')[1]
+        rating = rating.split(r']')[0]
+        self.story.setMetadata('rating',rating)
+            
 
 def getClass():
     return TheHookupZoneNetAdapter
