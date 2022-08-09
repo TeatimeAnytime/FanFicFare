@@ -19,11 +19,12 @@ from __future__ import absolute_import
 import logging
 logger = logging.getLogger(__name__)
 import re
-from bs4.element import Tag
+#from bs4.element import Tag
 from .. import exceptions as exceptions
+from ..htmlcleanup import stripHTML
 
 # py2 vs py3 transition
-from ..six import text_type as unicode
+#from ..six import text_type as unicode
 
 from .base_adapter import BaseSiteAdapter,  makeDate
 
@@ -42,17 +43,18 @@ class SilmarillionWritersGuildOrgAdapter(BaseSiteAdapter):
         self.is_adult=False
 
         # get storyId from url--url validation guarantees query is only sid=1234
-        self.story.setMetadata('storyId',self.parsedUrl.query.split('=',)[1])
+        #logger.debug(self.parsedUrl.path.split('/')[2])
+        self.story.setMetadata('storyId',self.parsedUrl.path.split('/')[2])
 
         # normalized story URL.
-        self._setURL('http://' + self.getSiteDomain() + '/archive/home/viewstory.php?sid='+self.story.getMetadata('storyId'))
+        self._setURL('https://' + self.getSiteDomain() + '/node/'+self.story.getMetadata('storyId'))
 
         # Each adapter needs to have a unique site abbreviation.
         self.story.setMetadata('siteabbrev','swg')
 
         # The date format will vary from site to site.
         # http://docs.python.org/library/datetime.html#strftime-strptime-behavior
-        self.dateformat = "%B %d, %Y"
+        self.dateformat = "%d %B %Y"
 
     @staticmethod # must be @staticmethod, don't remove it.
     def getSiteDomain():
@@ -61,10 +63,10 @@ class SilmarillionWritersGuildOrgAdapter(BaseSiteAdapter):
 
     @classmethod
     def getSiteExampleURLs(cls):
-        return "https://"+cls.getSiteDomain()+"/archive/home/viewstory.php?sid=123"
+        return "https://"+cls.getSiteDomain()+"/node/123"
 
     def getSiteURLPattern(self):
-        return r"https?://"+re.escape(self.getSiteDomain()+"/archive/home/viewstory.php?sid=")+r"\d+$"
+        return r"https?://"+re.escape(self.getSiteDomain()+"/node/")+r"\d+$"
 
     ## Getting the chapter list and the meta data
     def extractChapterUrlsAndMetadata(self):
@@ -76,176 +78,148 @@ class SilmarillionWritersGuildOrgAdapter(BaseSiteAdapter):
 
         soup = self.make_soup(data)
 
-
+        #check if the link is even a story, as the website stores other multimedia with no differece to urls
+        type_check = soup.body['class']
+        #logger.debug(type_check)
+        if 'page-node-type-writing' in type_check:
+            logger.debug('Content check passed.')
+            pass
+        else:
+            logger.debug('Content check failed.')
+            raise exceptions.FailedToDownload("Node is not a story at URL: %s " % self.url)
+        
         ## Title and author
 
         # find story header
-        a = soup.find('h6')
+        a = soup.find('h1')
 
         titleLinks = a.find_all('a')
         authorLink= titleLinks[1]
 
-        self.story.setMetadata('authorId',authorLink['href'].split('=')[1])
-        self.story.setMetadata('authorUrl','https://'+self.host+'/archive/home/'+authorLink['href'])
+        self.story.setMetadata('authorId',authorLink['href'].split('/')[2])
+        self.story.setMetadata('authorUrl','https://'+self.host+authorLink['href'])
         self.story.setMetadata('author',authorLink.string)
+        titleurl = titleLinks[0]
+        self.story.setMetadata('title',titleurl.string)
 
-        self.story.setMetadata('title',a.find('strong').find('a').get_text())
-
-        # Site does some weird stuff with pagination on series view and will only display 25 stories per page of results
-        # Therefor to get accurate index for series, we fetch all sub-pages of series and parse for valid story urls and add to a list,
-        # Then find first instance of current story url and use the number of loop itteration for index
-
-        # This is pretty slow but ehh it works
-
-        try:
-            # Find Series name from series URL.
-            a = soup.find('a', href=re.compile(r"viewseries.php\?seriesid=\d+"))
-            if a:
-                seriesName = a.string
-                seriesUrl = 'https://'+self.host+'/archive/home/'+a['href']
-
+        # Parse the infobox
+        ## The site doesn't give categories, so set default in default.ini
+        infobox = soup.find('table').find('tbody').findAll('tr')
+        labelsbox = infobox[0:2]
+        for box in labelsbox:
+            labelSpans = box.find_all('strong')
+            #logger.debug(labelSpans)
+            for labelSpan in labelSpans:
+                #logger.debug(labelSpan)
+                label = labelSpan.string
+                if label is None:
+                    label = stripHTML(labelSpan)
+                #logger.debug(label)
+                if 'Summary' in label:
+                    valueHTML = labelSpan.parent.next_sibling
+                    nextEl = valueHTML.next_sibling
+                    valueHTML2 = str(valueHTML)
+                    while nextEl is not None and '<strong>' not in str(nextEl):
+                        valueHTML2 = valueHTML2 + str(nextEl)
+                        nextEl = nextEl.next_sibling
+                    self.setDescription(self.url, valueHTML2)
+                else:
+                    values = labelSpan.parent.find_all('a')
+                    if 'Major Characters' in label:
+                        for value in values:
+                            self.story.addToList('characters', value.string)
+                    elif 'Major Relationships' in label:
+                        for value in values:
+                            self.story.addToList('ships', value.string)
+                    elif 'Genre' in label:
+                        for value in values:
+                            self.story.addToList('genre', value.string)
+                    elif 'Rating' in label:
+                        for value in values:
+                            self.story.setMetadata('rating', value.string)
+                    elif 'Warnings' in label:
+                        for value in values:
+                            self.story.addToList('warnings', value.string)
+                    elif 'Chapters' in label:
+                        value = labelSpan.next_sibling.string.strip()
+                        self.story.addToList('numChapters', int(value))
+                    elif 'Word Count' in label:
+                        value = labelSpan.next_sibling.string.strip()
+                        self.story.setMetadata('numWords', value)
+        
+        datebox = infobox[2]
+        dates = datebox.find_all('td')
+        for date in dates:
+            date = date.string
+            date = date.split(' on ')
+            if date[0] == 'Posted':
+                self.story.setMetadata('datePublished', makeDate(date[1], self.dateformat))
+            elif date[0] == 'Updated':
+                self.story.setMetadata('datePublished', makeDate(date[1], self.dateformat))
+        status_box = infobox[3]
+        status = status_box.td.p.string
+        if status == 'This fanwork is complete.':
+            self.story.setMetadata('status', 'Completed')
+        elif status == 'This fanwork is a work in progress.':
+            self.story.setMetadata('status', 'In-Progress')
+            
+        ## Series parse
+        #technically, there can be more than one series, but I really can't be bothered.
+        box1 = infobox[0]                
+        series_check = box1.find('span',{'class':'series-empty'})
+        if series_check is None:
+            try:
+                series_full = box1.find('span',{'class':'field-content'}).find('a')
+                
+                seriesName = series_full.string
+                #logger.debug(seriesName)
+                seriesUrl = 'https://'+self.host+series_full['href']
+                logger.debug(seriesUrl)
                 self.story.setMetadata('seriesUrl',seriesUrl)
-
-                #logger.debug("Series Url: "+seriesUrl)
-
-                # Get Series page and convert to soup
-                seriesPageSoup = self.make_soup(self.get_request(seriesUrl+"&offset=0"))
-                ## &offset=0 is the same as the first page, by adding
-                ## that, the page cache will save us from fetching it
-                ## twice in the loop below.
-
-                # Find Series page sub-pages
-                seriesPageUrlList = []
-                seriesStoryList = []
-                for i in seriesPageSoup.findAll('a', href=re.compile(r"viewseries.php\?seriesid=\d+&offset=\d+$")):
-                    # Don't include url from next button, is another http request and parse + could cause more bugs!
-                    if i.string != '[Next]':
-                        seriesPageUrlList.append(i)
-
-                #get urls from all subpages and append to list
+                #making soup from series page just to find the index, Oh MY!
+                seriesPageSoup = self.make_soup(self.get_request(seriesUrl))
+                
+                #seriesStoryList = []
+                storyHeaders = seriesPageSoup.findAll('h4')
+                #logger.debug(storyHeaders)
                 i=1
-                for seriesPagePageUrl in seriesPageUrlList:
-                    seriesPagePageSoup = self.make_soup(self.get_request('https://'+self.host+'/archive/home/'+seriesPagePageUrl['href']))
-                    storyHeaders = seriesPagePageSoup.findAll('h5')
-                    ## can't just search for story URLs, some story
-                    ## descs also contain story URLs.  Looks like only
-                    ## story titles are <h5>.
-                    for storyHeader in storyHeaders:
-                        seriesPagePageStoryUrl = storyHeader.find('a',href=re.compile(r'^viewstory.php\?sid=\d+$'))
-                        if seriesPagePageStoryUrl['href'] == ('viewstory.php?sid='+self.story.getMetadata('storyId')):
+                for storyHeader in storyHeaders:
+                    seriesPagePageStoryUrl = storyHeader.find('a',href=re.compile(r'\/node\/\d+$'))
+                    #logger.debug(seriesPagePageStoryUrl)
+                    if seriesPagePageStoryUrl is None:
+                        pass
+                    else:
+                        if seriesPagePageStoryUrl['href'] == ('/node/'+self.story.getMetadata('storyId')):
                             #logger.debug("Series Name: "+ seriesName)
                             #logger.debug("Series Index: "+i)
                             self.setSeries(seriesName, i)
                             raise StopIteration("Break out of series parsing loops")
                         i+=1
-
-        except StopIteration:
-            # break out of both loops, don't need to fetch further
-            # pages after story found.
-            pass
-        except Exception as e:
-            logger.warning("series parsing failed(%s)"%e)
-
+            except StopIteration:
+                # break out of both loops, don't need to fetch further
+                # pages after story found.
+                pass
+            except Exception as e:
+                logger.warning("series parsing failed(%s)"%e) 
+        #getting storynotes
+        notesbox = soup.find('h4')
+        if notesbox.string == 'Fanwork Notes':
+            valueHTML = notesbox.next_sibling.next_sibling
+            nextEl = valueHTML.next_sibling.next_sibling
+            valueHTML2 = str(valueHTML)
+            while nextEl is not None and '<p>' in str(nextEl):
+                valueHTML2 = valueHTML2 + str(nextEl)
+                nextEl = nextEl.next_sibling
+            #logger.debug(valueHTML2)
+            self.story.setMetadata('storynotes', stripHTML(valueHTML2))
+    
         # Find the chapters by regexing urls
-        chapters=soup.findAll('a', href=re.compile(r'viewstory.php\?sid='+self.story.getMetadata('storyId')+r"&chapter=\d+$"))
+        chapters=soup.findAll('a', href=re.compile(r'^/node/'+self.story.getMetadata('storyId')+r"/single\?page\=\d+$"))
 
-        if len(chapters)==1:
-            self.add_chapter(self.story.getMetadata('title'),'https://'+self.host+'/archive/home/'+chapters[0]['href'])
-        else:
-            for chapter in chapters:
-                # logger.debug("Added Chapter: "+chapter.string)
-                self.add_chapter(chapter,'https://'+self.host+'/archive/home/'+chapter['href'])
-
-	# find the details section for the work, will hopefully make parsing metadata a bit easier
-
-        workDetails = soup.find('div', {'id' : 'general'}).find('div', {'id' : 'general'})
-
-        # some metadata can be retrieved through regexes so will do that to try and avoid a janky mess.
-
-        #get characters
-        try:
-            charList = workDetails.findAll('a', href=re.compile(r'browse.php\?type=characters'+r"&charid=\d+$"))
-            for char in charList:
-                self.story.addToList('characters',char.string)
-
-        except Exception as e:
-            logger.warning("character parsing failed(%s)"%e)
-
-        #get warnings
-        try:
-            warnList = workDetails.findAll('a', href=re.compile(r'browse.php\?type=class&type_id=2'+r"&classid=\d+$"))
-            for warn in warnList:
-                self.story.addToList('warnings', warn.string)
-
-        except Exception as e:
-            logger.warning("warning parsing failed(%s)"%e)
-
-        #get genres
-        try:
-            genresList = workDetails.findAll('a', href=re.compile(r'browse.php\?type=class&type_id=1'+r"&classid=\d+$"))
-            for genre in genresList:
-                self.story.addToList('genre', genre.string)
-
-        except Exception as e:
-            logger.warning("genre parsing failed(%s)"%e)
-
-        # no convenient way to extract remaining metadata so bodge it by finding relevant identifier string and using next element as the data source
-
-        #get summary by finding identifier, then itterating until next identifier is found and using data between the two as the summary
-        try:
-            summaryStart = workDetails.find('strong',text='Summary: ')
-            currentElement = summaryStart.parent.next_sibling
-            summaryValue = ""
-            while not isinstance(currentElement,Tag) or currentElement.name != 'strong':
-                summaryValue += unicode(currentElement)
-                currentElement = currentElement.next_sibling
-                #logger.debug(summaryValue)
-            self.setDescription(url,summaryValue)
-        except Exception as e:
-            logger.warning("summary parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
-
-
-        #get rating
-        try:
-            rating = workDetails.find('strong',text='Rated:').next_sibling.string
-            self.story.setMetadata('rating', rating)
-        except Exception as e:
-            logger.warning("rating parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
-
-        #get completion status and correct for consistency with other adapters
-        try:
-            if (workDetails.find('strong',text='Completed:').next_sibling.string).lower() == "yes":
-                status="Completed"
-
-            else:
-                status="In-Progress"
-
-            self.story.setMetadata('status', status)
-        except Exception as e:
-            logger.warning("status parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
-
-        #get wordcount
-        try:
-            wordCount = workDetails.find('strong',text='Word count:').next_sibling.string
-            self.story.setMetadata('numWords', wordCount)
-        except Exception as e:
-            logger.warning("wordcount parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
-
-        #get published date, this works for some reason yet doesn't without the spaces in it
-        try:
-            datePublished = workDetails.find('strong',text=' Published: ').next_sibling.string
-            self.story.setMetadata('datePublished', makeDate(datePublished, self.dateformat))
-
-        except Exception as e:
-            logger.warning("datePublished parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
-
-        #get updated date
-        try:
-            dateUpdated = workDetails.find('strong',text='Updated:').next_sibling.string
-            self.story.setMetadata('dateUpdated', makeDate(dateUpdated, self.dateformat))
-
-        except Exception as e:
-            logger.warning("dateUpdated parsing failed(%s) -- This can be caused by bad HTML in story description."%e)
+        for chapter in chapters:
+            # logger.debug("Added Chapter: "+chapter.string)
+            self.add_chapter(chapter,'https://'+self.host+chapter['href'])
+            
 
     # grab the text for an individual chapter.
     def getChapterText(self, url):
@@ -255,18 +229,60 @@ class SilmarillionWritersGuildOrgAdapter(BaseSiteAdapter):
         data = self.get_request(url)
         soup = self.make_soup(data)
 
-        # No convenient way to get story without the rest of the page, so get whole page and strip unneeded sections
-
-        contentParent = soup.find('div', {'id' : 'maincontent'}).find('div', {'id' : 'general'})
-
-        contentParent.find('p').decompose() # remove page header
-        contentParent.find_all('div',id='general')[2].decompose() #remove page footer
-        contentParent.find_all('div',id='general')[0].decompose() #remove chapter select etc.
-
-        contentParent.name='div'
-
-        #error on failure
-        if None == contentParent:
+        listing = soup.find('div',{'class':"fanwork-listing"})
+        if None == listing:
             raise exceptions.FailedToDownload("Error downloading Chapter: %s!  Missing required element!" % url)
+        # remove useless elements
+        listing.div.decompose()
+        listing.h1.decompose()
+        listing.h3.decompose()
+        #check for footnote
+        footnote_check = False
+        maybe_footnotes = listing.find_all('h4')
+        for maybe in maybe_footnotes:
+            if maybe.string == 'Chapter End Notes':
+                footnote_check = True
+                listing.h4.decompose()
+            else:
+                pass
+        if self.getConfig("include_author_notes",True):
+            firstline = listing.find('hr')
+            para = firstline.next_sibling
+            firstline.decompose()
+            while para is not None and'<p>' not in str(para):
+                para = para.next_sibling
+                if '<hr/>' in str(para):
+                    firstline = listing.find('hr')
+                    firstline.decompose()
+                    break
+            #logger.debug(listing)
+            chapter_content = listing
+        else:
+            logger.debug('here')
+            #remove frontonte
+            firstline = listing.find('hr')
+            para = firstline.next_sibling
+            if '<hr/>' not in str(para):
+                nextEl = para.next_sibling
+                para.replace_with('')
+                while nextEl is not None and '<hr/>' not in str(nextEl):
+                    para = nextEl
+                    nextEl = nextEl.next_sibling
+                    para.replace_with('')
+            firstline.decompose()
+            listing.find('hr').decompose()
+            #remove footnote if present
+            if footnote_check == True:
+                lines = listing.find_all('hr')
+                lastline = lines[-1]
+                para = lastline.next_sibling
+                nextEl = para.next_sibling
+                para.replace_with('')
+                while nextEl is not None and '<hr/>' not in str(nextEl):
+                    para = nextEl
+                    nextEl = nextEl.next_sibling
+                    para.replace_with('')
+                lastline.decompose()
+            chapter_content = listing
 
-        return self.utf8FromSoup(url,contentParent)
+        return self.utf8FromSoup(url,chapter_content)
