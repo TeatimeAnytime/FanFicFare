@@ -23,7 +23,7 @@ from __future__ import unicode_literals
 import logging
 logger = logging.getLogger(__name__)
 import re
-
+import datetime
 from ..htmlcleanup import stripHTML
 from .. import exceptions as exceptions
 
@@ -159,7 +159,7 @@ class FanficAuthorsNetAdapter(BaseSiteAdapter):
         ## Title
         a = soup.find('h2')
         self.story.setMetadata('title',stripHTML(a))
-
+        
         # Find the chapters:
         # The published and update dates are with the chapter links...
         # so we have to get them from there.
@@ -167,11 +167,32 @@ class FanficAuthorsNetAdapter(BaseSiteAdapter):
             'storyId')+'/([a-zA-Z0-9_]+)/'))
 
         # Here we are getting the published date. It is the date the first chapter was "updated"
-        updatedate = stripHTML(unicode(chapters[0].parent)).split('Uploaded on:')[1].strip()
+        try:
+            updatedate = stripHTML(unicode(chapters[0].parent)).split('Uploaded on:')[1].strip()
+        except:
+            updatedate = stripHTML(unicode(chapters[0].parent)).split('Mise à jour le:')[1].strip()
         updatedate = updatedate.replace('st ',' ').replace('nd ',' ').replace(
             'rd ',' ').replace('th ',' ')
         self.story.setMetadata('datePublished', makeDate(updatedate, self.dateformat))
-
+        
+        storyID_start = self.parsedUrl.path.split('/',)[1]
+        storyID_list = storyID_start.split('_')
+        storyID_raw = []
+        for word in storyID_list:
+            if word == '':
+                pass
+            else:
+                letter = word[0]
+                storyID_raw.append(letter)
+        storyID_raw = ''.join(storyID_raw)
+        storyID_raw = storyID_raw.upper()
+        idno = makeDate(updatedate, self.dateformat)
+        idno = idno.strftime('%d%m%y')
+#        idno = idno.split('-')
+        idno = ''.join(idno)
+        storyID_raw = idno + storyID_raw
+        self.story.setMetadata('shortID',storyID_raw)
+        
         # Status: Completed - Rating: Adult Only - Chapters: 19 - Word count: 323,805 - Genre: Post-OotP
         # Status: In progress - Rating: Adult Only - Chapters: 42 - Word count: 395,991 - Genre: Action/Adventure, Angst, Drama, Romance, Tragedy
         # Status: Completed - Rating: Everyone - Chapters: 1 - Word count: 876 - Genre: Sorrow
@@ -193,8 +214,23 @@ class FanficAuthorsNetAdapter(BaseSiteAdapter):
             self.story.setMetadata('rating',match.group('rating'))
             self.story.setMetadata('numWords',match.group('numWords'))
             self.story.extendList('genre',re.split(r'[;,-]',match.group('genre')))
+        ## Some stories at https://frenchsession.fanficauthors.net/ have metadata in French, so here's the fix
         else:
-            raise exceptions.FailedToDownload("Error parsing metadata: '{0}'".format(url))
+            match = re.match(r"Statut: (?P<status>.+?) - Rating: (?P<rating>.+?) - Chapitres: [0-9,]+ - Nombre de mots: (?P<numWords>[0-9,]+?) - Genre: ?(?P<genre>.*?)$",metaline)
+            if match:
+                # logger.debug(match.group('status'))
+                # logger.debug(match.group('rating'))
+                # logger.debug(match.group('numWords'))
+                # logger.debug(match.group('genre'))
+                if "Completed" in match.group('status'):
+                    self.story.setMetadata('status',"Completed")
+                else:
+                    self.story.setMetadata('status',"In-Progress")
+                self.story.setMetadata('rating',match.group('rating'))
+                self.story.setMetadata('numWords',match.group('numWords'))
+                self.story.extendList('genre',re.split(r'[;,-]',match.group('genre')))
+            else:
+                raise exceptions.FailedToDownload("Error parsing metadata: '{0}'".format(url))
 
         summary = div.find('blockquote').get_text()
         self.setDescription(url,summary)
@@ -210,8 +246,12 @@ class FanficAuthorsNetAdapter(BaseSiteAdapter):
             if '/reviews/' not in chapter['href']:
                 # here we get the update date. We will update this for every chapter,
                 # so we get the last one.
-                updatedate = stripHTML(unicode(chapters[i].parent)).split(
-                    'Uploaded on:')[1].strip()
+                try:
+                    updatedate = stripHTML(unicode(chapters[i].parent)).split(
+                        'Uploaded on:')[1].strip()
+                except:
+                    updatedate = stripHTML(unicode(chapters[i].parent)).split(
+                        'Mise à jour le:')[1].strip()
                 updatedate = updatedate.replace('st ',' ').replace('nd ',' ').replace(
                     'rd ',' ').replace('th ',' ')
                 self.story.setMetadata('dateUpdated', makeDate(updatedate, self.dateformat))
@@ -233,6 +273,15 @@ class FanficAuthorsNetAdapter(BaseSiteAdapter):
             addurl=""
 
         soup = self.make_soup(self.get_request(url+addurl))
+        agecheck = 'ok'
+        agecheck = soup.find('div',{'id':'main'}).find('p').string
+        logger.debug(agecheck)
+        if agecheck:
+            if 'This content has been marked as Adult Only or Mature' in agecheck:
+                addurl = "?bypass=1"
+                soup = self.make_soup(self.get_request(url+addurl))
+            else:
+                pass           
 
         story = soup.find('div',{'class':'story'})
 
