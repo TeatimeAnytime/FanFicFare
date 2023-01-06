@@ -185,16 +185,19 @@ def get_valid_set_options():
                'keep_style_attr':(None,None,boollist),
                'keep_title_attr':(None,None,boollist),
                'make_firstimage_cover':(None,None,boollist),
+               'use_old_cover':(None,None,boollist),
                'never_make_cover':(None,None,boollist),
                'nook_img_fix':(None,None,boollist),
                'replace_br_with_p':(None,None,boollist),
                'replace_hr':(None,None,boollist),
                'sort_ships':(None,None,boollist),
                'strip_chapter_numbers':(None,None,boollist),
+               'remove_class_chapter':(None,None,boollist),
                'mark_new_chapters':(None,None,boollist+['latestonly']),
                'titlepage_use_table':(None,None,boollist),
 
                'use_ssl_unverified_context':(None,None,boollist),
+               'use_ssl_default_seclevelone':(None,None,boollist),
                'use_cloudscraper':(None,None,boollist),
                'use_basic_cache':(None,None,boollist),
                'use_nsapa_proxy':(None,None,boollist),
@@ -285,13 +288,13 @@ def get_valid_set_options():
                'use_threadmark_wordcounts':(base_xenforo_list,None,boollist),
                'always_include_first_post_chapters':(base_xenforo_list,None,boollist),
                'order_threadmarks_by_date':(base_xenforo_list,None,boollist),
-               'order_threadmarks_by_date_categories':(base_xenforo_list,None,boollist),
                'reveal_invisible_text':(base_xenforo_list,None,boollist),
                'use_threadmarks_description':(base_xenforo2_list,None,boollist),
                'use_threadmarks_status':(base_xenforo2_list,None,boollist),
                'use_threadmarks_cover':(base_xenforo2_list,None,boollist),
                'skip_sticky_first_posts':(base_xenforo2_list,None,boollist),
                'include_dice_rolls':(base_xenforo2_list,None,boollist+['svg']),
+               'include_chapter_banner_images':(['wattpad.com'],None,boollist),
                'fix_excess_space': (['novelonlinefull.com', 'novelall.com'], ['epub', 'html'], boollist),
                'dedup_order_chapter_list': (['m.wuxiaworld.co', 'novelupdates.cc'], None, boollist),
                'show_nsfw_cover_images': (['fiction.live'], None, boollist),
@@ -376,6 +379,7 @@ def get_valid_keywords():
                  'datePublished_format',
                  'dateUpdated_format',
                  'default_cover_image',
+                 'force_cover_image',
                  'description_limit',
                  'do_update_hook',
                  'use_archived_author',
@@ -421,6 +425,7 @@ def get_valid_keywords():
                  'keep_style_attr',
                  'keep_title_attr',
                  'keep_html_attrs',
+                 'remove_class_chapter',
                  'replace_tags_with_spans',
                  'keep_empty_tags',
                  'remove_tags',
@@ -433,6 +438,7 @@ def get_valid_keywords():
                  'logpage_update_start',
                  'make_directories',
                  'make_firstimage_cover',
+                 'use_old_cover',
                  'make_linkhtml_entries',
                  'max_fg_sleep',
                  'max_fg_sleep_at_downloads',
@@ -453,6 +459,7 @@ def get_valid_keywords():
                  'rating_titles',
                  'remove_transparency',
                  'replace_br_with_p',
+                 'replace_chapter_text',
                  'replace_hr',
                  'replace_xbr_with_hr',
                  'replace_metadata',
@@ -486,6 +493,7 @@ def get_valid_keywords():
                  'tweak_fg_sleep',
                  'universe_as_series',
                  'use_ssl_unverified_context',
+                 'use_ssl_default_seclevelone',
                  'http_proxy',
                  'https_proxy',
                  'use_cloudscraper',
@@ -499,6 +507,7 @@ def get_valid_keywords():
                  'flaresolverr_proxy_address',
                  'flaresolverr_proxy_port',
                  'flaresolverr_proxy_protocol',
+                 'flaresolverr_proxy_timeout',
                  'browser_cache_path',
                  'browser_cache_age_limit',
                  'user_agent',
@@ -530,6 +539,7 @@ def get_valid_keywords():
                  'replace_failed_smilies_with_alt_text',
                  'use_threadmark_wordcounts',
                  'always_include_first_post_chapters',
+                 'threadmark_category_order',
                  'order_threadmarks_by_date',
                  'order_threadmarks_by_date_categories',
                  'reveal_invisible_text',
@@ -538,6 +548,7 @@ def get_valid_keywords():
                  'use_threadmarks_cover',
                  'skip_sticky_first_posts',
                  'include_dice_rolls',
+                 'include_chapter_banner_images',
                  'datethreadmark_format',
                  'fix_pseudo_html',
                  'fix_excess_space',
@@ -892,7 +903,8 @@ class Configuration(ConfigParser):
         clude_metadata_re = re.compile(r'(add_to_)?(in|ex)clude_metadata_(pre|post)$')
 
         replace_metadata_re = re.compile(r'(add_to_)?replace_metadata$')
-        from .story import set_in_ex_clude, make_replacements
+        replace_chapter_text_re = re.compile(r'(add_to_)?replace_chapter_text$')
+        from .story import set_in_ex_clude, make_replacements, make_chapter_text_replacements
 
         custom_columns_settings_re = re.compile(r'(add_to_)?custom_columns_settings$')
         custom_columns_flags_re = re.compile(r'^[rna](_anthaver)?')
@@ -930,6 +942,9 @@ class Configuration(ConfigParser):
 
                         if replace_metadata_re.match(keyword):
                             make_replacements(value)
+
+                        if replace_chapter_text_re.match(keyword):
+                            make_chapter_text_replacements(value)
 
                         if generate_cover_settings_re.match(keyword):
                             make_generate_cover_settings(value)
@@ -1015,7 +1030,7 @@ class Configuration(ConfigParser):
             if self.getConfig('use_flaresolverr_proxy',False):
                 logger.debug("use_flaresolverr_proxy:%s"%self.getConfig('use_flaresolverr_proxy'))
                 fetchcls = flaresolverr_proxy.FlareSolverr_ProxyFetcher
-                if self.getConfig('use_flaresolverr_proxy') != 'withimages':
+                if self.getConfig('use_flaresolverr_proxy') != 'withimages' and not self.getConfig('use_browser_cache'):
                     logger.warning("FlareSolverr v2+ doesn't work with images: include_images automatically set false")
                     logger.warning("Set use_flaresolverr_proxy:withimages if your are using FlareSolver v1 and want images")
                     self.set('overrides', 'include_images', 'false')

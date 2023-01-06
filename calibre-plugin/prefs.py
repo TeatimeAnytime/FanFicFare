@@ -120,7 +120,7 @@ default_prefs['reject_delete_default'] = True
 
 default_prefs['updatemeta'] = True
 default_prefs['bgmeta'] = False
-default_prefs['updateepubcover'] = False
+#default_prefs['updateepubcover'] = True # removed in favor of always True Oct 2022
 default_prefs['keeptags'] = False
 default_prefs['suppressauthorsort'] = False
 default_prefs['suppresstitlesort'] = False
@@ -159,11 +159,12 @@ default_prefs['addtolistsonread'] = False
 default_prefs['autounnew'] = False
 
 default_prefs['updatecalcover'] = SAVE_YES_IF_IMG
-default_prefs['gencalcover'] = SAVE_YES
+default_prefs['covernewonly'] = False
+default_prefs['gencalcover'] = SAVE_YES_UNLESS_IMG
 default_prefs['updatecover'] = False
-default_prefs['calibre_gen_cover'] = False
-default_prefs['plugin_gen_cover'] = True
-default_prefs['gcnewonly'] = False
+default_prefs['calibre_gen_cover'] = True
+default_prefs['plugin_gen_cover'] = False
+default_prefs['gcnewonly'] = True
 default_prefs['gc_site_settings'] = {}
 default_prefs['allow_gc_from_ini'] = True
 default_prefs['gc_polish_cover'] = False

@@ -47,18 +47,24 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
         self.password = ""
         self.is_adult=False
 
-        # get storyId from url
-        self.story.setMetadata('storyId',self.parsedUrl.path.split('/',)[2].split(':')[0])
-        if 'storyInfo' in self.story.getMetadata('storyId'):
-            self.story.setMetadata('storyId',self.parsedUrl.query.split('=',)[1])
-        ## for -2020-12-25 date added by append_datepublished_to_storyurl
-        ## adds to URL, but NOT id.
-        if '-'  in self.story.getMetadata('storyId'):
-            self.story.setMetadata('storyId',self.story.getMetadata('storyId').split('-')[0])
-            logger.debug("storyId date removed:%s\n"%self.story.getMetadata('storyId'))
+        # get storyId from url--url validation guarantees query correct
+        m = re.match(self.getSiteURLPattern(),url)
+        if m:
+            self.story.setMetadata('storyId',m.group('id'))
+            if '-'  in self.story.getMetadata('storyId'):
+                self.story.setMetadata('storyId',self.story.getMetadata('storyId').split('-')[0])
+                logger.debug("storyId date removed:%s\n"%self.story.getMetadata('storyId'))
 
-        # normalized story URL.
-        self._setURL('https://' + self.getSiteDomain() + '/s/'+self.story.getMetadata('storyId'))
+            # chapter URLs don't have the same embedded title in URL as story.
+            title = ""
+            if not m.group('chapter') and m.group('title'):
+                title = m.group('title')
+            # normalized story URL.
+            self._setURL('https://' + self.getSiteDomain() + '/s/'+self.story.getMetadata('storyId')+title)
+        else:
+            raise exceptions.InvalidStoryURL(url,
+                                             self.getSiteDomain(),
+                                             self.getSiteExampleURLs())
 
         # Each adapter needs to have a unique site abbreviation.
         self.story.setMetadata('siteabbrev',self.getSiteAbbrev())
@@ -81,11 +87,11 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
         return "http://"+cls.getSiteDomain()+"/s/1234 http://"+cls.getSiteDomain()+"/s/1234:4010 https://"+cls.getSiteDomain()+"/s/1234 https://"+cls.getSiteDomain()+"/s/1234:4010"
 
     def getSiteURLPattern(self):
-        return r"https?://"+re.escape(self.getSiteDomain())+r"/(s|library)/(storyInfo.php\?id=)?(?P<id>\d+)((:\d+)?(;\d+)?$|(:i)?$)?"
+        return r"https?://"+re.escape(self.getSiteDomain())+r"/(s|library)/(storyInfo.php\?id=)?(?P<id>\d+)(?P<chapter>:\d+)?(?P<title>/.+)?((;\d+)?$|(:i)?$)?"
 
     @classmethod
     def getTheme(cls):
-        ## only one theme is supported.
+        # preferred theme
         return "Classic"
 
     def needToLoginCheck(self, data):
@@ -144,25 +150,46 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
 
     ## Getting the chapter list and the meta data, plus 'is adult' checking.
     def doExtractChapterUrlsAndMetadata(self, get_cover=True):
-
-        # index=1 makes sure we see the story chapter index.  Some
-        # sites skip that for one-chapter stories.
         url = self.url
         logger.debug("URL: "+url)
 
+        ## Hit story URL to check for changed title part -- if the
+        ## title has changed or (more likely?) the ID number has
+        ## been reassigned to a different title, this will 404
+        ## Note that the site ignores extra letters, so if the real
+        ## URL is /story-title then /story-titleaaaa will still work.
         try:
-            data = self.get_request(url+":i")
-            # logger.debug(data)
+            data = self.get_request(url)
         except exceptions.HTTPErrorFFF as e:
             if e.status_code in (401, 403, 410):
                 data = 'Log In' # to trip needToLoginCheck
+            elif e.status_code == 404:
+                raise exceptions.FailedToDownload("Page Not Found - Story ID Reused? (%s)" % url)
             else:
                 raise e
-
         if self.needToLoginCheck(data):
             # need to log in for this one.
             self.performLogin(url)
-            data = self.get_request(url+":i",usecache=False)
+            data = self.get_request(url,usecache=False)
+
+        ## Premium account might redirect to a chapter, while regular
+        ## account doesn't redirect to the URL with embedded /story-title
+        ## So pull url from <a href="/s/000/story-title" rel="bookmark">
+        ## regardless.
+        soup = self.make_soup(data)
+        a = soup.find('a',rel="bookmark")
+        url = 'https://'+self.host+a['href']
+
+        ## Premium has "?ind=1" to force index.
+        ## May not be needed w/o premium
+        ## used to be :i
+        if "?ind=1" not in url:
+            url = url+"?ind=1"
+        logger.info("use url: "+url)
+        data = self.get_request(url)
+        ## To include /title-in-url, but not ind=1
+        self._setURL(url.replace("?ind=1",""))
+        # logger.debug(data)
 
         if "Access denied. This story has not been validated by the adminstrators of this site." in data:
             raise exceptions.AccessDenied(self.getSiteDomain() +" says: Access denied. This story has not been validated by the adminstrators of this site.")
@@ -173,7 +200,6 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
 
         soup = self.make_soup(data)
         # logger.debug(data)
-
 
         ## Title
         a = soup.find('h1')
@@ -205,16 +231,6 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
 
 
         self.getStoryMetadataFromAuthorPage()
-
-        ## append_datepublished_to_storyurl adds to URL, but NOT id.
-        ## This is an ugly kludge to (hopefully) help address the
-        ## site's unfortunately habit of *reusing* storyId numbers.
-        if self.getConfig("append_datepublished_to_storyurl",False):
-            logger.info("Applying append_datepublished_to_storyurl")
-            self._setURL('https://' + self.getSiteDomain() +
-                         '/s/'+self.story.getMetadata('storyId')+
-                         self.story.getMetadataRaw('datePublished').strftime("-%Y-%m-%d"))
-            logger.info("updated storyUrl:%s"%self.url)
 
         # Some books have a cover in the index page.
         # Samples are:
@@ -251,29 +267,40 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
 
     def getStoryMetadataFromAuthorPage(self):
         # surprisingly, the detailed page does not give enough details, so go to author's page
-        story_row = self.findStoryRow('tr')
-        self.has_universes = False
+        story_row = self.findStoryRow()
 
-        title_cell = story_row.find('td', {'class' : 'lc2'})
-        for cat in title_cell.findAll('div', {'class' : 'typediv'}):
-            self.story.addToList('genre',cat.text)
+        if story_row.name == 'tr':
+            # classic theme
+            self.has_universes = False
 
-        # in lieu of word count.
-        self.story.setMetadata('size', story_row.find('td', {'class' : 'num'}).text)
+            title_cell = story_row.find('td', {'class' : 'lc2'})
+            for cat in title_cell.findAll('div', {'class' : 'typediv'}):
+                self.story.addToList('genre',cat.text)
 
-        score = story_row.findNext('th', {'class' : 'ynum'}).text
-        if score != '-':
-            self.story.setMetadata('score', score)
+            # in lieu of word count.
+            self.story.setMetadata('size', story_row.find('td', {'class' : 'num'}).text)
 
-        description_element = story_row.findNext('td', {'class' : 'lc4'})
-        # logger.debug(description_element)
+            score = story_row.findNext('th', {'class' : 'ynum'}).text
+            if re.match(r"[\d,\.]+",score):
+                self.story.setMetadata('score', score)
 
-        self.parseDescriptionField(description_element)
+            description_element = story_row.findNext('td', {'class' : 'lc4'})
+            # logger.debug(description_element)
 
-        self.parseOtherAttributes(description_element)
+            self.parseDescriptionField(description_element)
+
+            self.parseOtherAttributes(description_element)
+        else:
+            # modern theme (or minimalist theme, should also work)
+            description_element = story_row.find('div', {'class' : 'sdesc'})
+
+            self.parseDescriptionField(description_element)
+
+            misc_element = story_row.find('div', {'class' : 'misc'})
+            self.parseOtherAttributes(misc_element)
 
 
-    def findStoryRow(self, row_class='tr'):
+    def findStoryRow(self):
         page=0
         story_found = False
         while not story_found:
@@ -285,7 +312,14 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
                     raise exceptions.FailedToDownload("Story not found in Author's list--Set Access Level to Full Access and change Listings Theme back to "+self.getTheme())
             asoup = self.make_soup(data)
 
-            story_row = asoup.find(row_class, {'id' : 'sr' + self.story.getMetadata('storyId')})
+            story_row = asoup.find('tr', {'id' : 'sr' + self.story.getMetadata('storyId')})
+            if story_row:
+                logger.debug("Found story row on page %d" % page)
+                story_found = True
+                self.has_universes = "/universes" in data
+                break
+
+            story_row = asoup.find('div', {'id' : 'sr' + self.story.getMetadata('storyId')})
             if story_row:
                 logger.debug("Found story row on page %d" % page)
                 story_found = True
@@ -381,8 +415,9 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
         # There's nothing around the desc to grab it by, and there's a
         # variable number of links before it.
         for line in description_element.contents:
+            content = stripHTML(line)
             line = unicode(line)
-            if line.strip() == '' or line.startswith("<span") or line.startswith("<br"):
+            if content == '' or line.strip() == '' or line.startswith("<span") or line.startswith("<br"):
                 # skip empty, <span (universe, series or context) and <br>.
                 # logger.debug("Discard: %s"%line)
                 pass
@@ -432,9 +467,8 @@ class StoriesOnlineNetAdapter(BaseSiteAdapter):
                 self.story.setMetadata('rating', value)
             if 'Age' in label:  # finestories.com,scifistories.com use '<b>Age Rating:</b> Older than XX | '
                 self.story.setMetadata('rating', value.split('|')[0])
-            if 'Score' in label and value != '-':
+            if 'Score' in label and re.match(r"[\d,\.]+",value):
                 self.story.setMetadata('score', value)
-
             if 'Tags' in label or 'Codes' in label:
                 for code in re.split(r'\s*,\s*', value.strip()):
                     self.story.addToList('sitetags', code)

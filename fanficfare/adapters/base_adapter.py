@@ -279,21 +279,28 @@ class BaseSiteAdapter(Requestable):
             self.storyDone = True
 
             # include image, but no cover from story, add default_cover_image cover.
-            if self.getConfig('include_images') and \
-                    not self.story.cover and \
-                    self.getConfig('default_cover_image'):
-                self.story.addImgUrl(None,
-                                     #self.getConfig('default_cover_image'),
-                                     self.story.formatFileName(self.getConfig('default_cover_image'),
-                                                               self.getConfig('allow_unsafe_filename')),
-                                     self.get_request_raw,
-                                     cover=True)
-                self.story.setMetadata('cover_image','default')
+            if self.getConfig('include_images'):
+                cover_image_url = None
+                if self.getConfig('force_cover_image'):
+                    cover_image_type = 'force'
+                    cover_image_url = self.getConfig('force_cover_image')
+                    logger.debug('force_cover_image')
+                elif not self.story.cover and \
+                        self.getConfig('default_cover_image'):
+                    cover_image_type = 'default'
+                    cover_image_url = self.getConfig('default_cover_image')
+                    logger.debug('default_cover_image')
+                if cover_image_url:
+                    (src,longdesc) = self.story.addImgUrl(url, # chapter url as referrer
+                                                          self.story.formatFileName(cover_image_url,
+                                                                                    self.getConfig('allow_unsafe_filename')),
+                                                          self.get_request_raw,
+                                                          cover=True)
+                    if src and src != 'failedtoload':
+                        self.story.setMetadata('cover_image',cover_image_type)
 
-            # no new cover, set old cover, if there is one.
-            if not self.story.cover and self.oldcover:
-                self.story.oldcover = self.oldcover
-                self.story.setMetadata('cover_image','old')
+            # copy oldcover tuple to story.
+            self.story.oldcover = self.oldcover
 
             # cheesy way to carry calibre bookmark file forward across update.
             if self.calibrebookmark:
@@ -567,6 +574,7 @@ class BaseSiteAdapter(Requestable):
 
     def setCoverImage(self,storyurl,imgurl):
         if self.getConfig('include_images'):
+            logger.debug("setCoverImage(%s,%s)"%(storyurl,imgurl))
             return self.story.addImgUrl(storyurl,imgurl,self.get_request_raw,cover=True,
                                         coverexclusion=self.getConfig('cover_exclusion_regexp'))
         else:

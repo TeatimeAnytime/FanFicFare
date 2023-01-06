@@ -216,19 +216,25 @@ class AddNewDialog(SizePersistedDialog):
         self.toplabel=QLabel("Toplabel")
         self.l.addWidget(self.toplabel)
 
-        ## XXX add labels for series name and desc? Desc in tooltip?
-        row = 0
+        ## scrollable area for lengthy series comments.
+        scrollable = QScrollArea()
+        scrollcontent = QWidget()
+        scrollable.setWidget(scrollcontent)
+        scrollable.setWidgetResizable(True)
+        self.l.addWidget(scrollable)
+
         grid = QGridLayout()
+        scrollcontent.setLayout(grid)
+        self.mergeshow.append(scrollable)
+
+        row = 0
         label = QLabel('<b>'+_('Series')+':</b>')
         grid.addWidget(label,row,0)
         self.mergedname=QLabel("mergedname")
         tt = _('This name will be used with the %s setting to set the title of the new book.')%'<i>anthology_title_pattern</i>'
         label.setToolTip(tt)
-        self.mergeshow.append(label)
         self.mergedname.setToolTip(tt)
         grid.addWidget(self.mergedname,row,1,1,-1)
-        self.l.addLayout(grid)
-        self.mergeshow.append(self.mergedname)
 
         row+=1
         label = QLabel('<b>'+_('Comments')+':</b>')
@@ -236,18 +242,15 @@ class AddNewDialog(SizePersistedDialog):
         self.mergeddesc=QLabel("mergeddesc")
         tt = _('These comments about the series will be included in the Comments of the new book.')+'<i></i>' # for html for auto-wrap
         label.setToolTip(tt)
-        self.mergeshow.append(label)
         self.mergeddesc.setToolTip(tt)
         self.mergeddesc.setWordWrap(True)
         grid.addWidget(self.mergeddesc,row,1,1,-1)
-        self.l.addLayout(grid)
-        self.mergeshow.append(self.mergeddesc)
         grid.setColumnStretch(1,1)
 
         self.url = DroppableQTextEdit(self)
         self.url.setToolTip("UrlTooltip")
         self.url.setLineWrapMode(QTextEditNoWrap)
-        self.l.addWidget(self.url)
+        self.l.addWidget(self.url,1) # 1 higher 'stretch'==higher priority
 
         self.groupbox = QGroupBox(_("Show Download Options"))
         self.groupbox.setCheckable(True)
@@ -310,12 +313,6 @@ class AddNewDialog(SizePersistedDialog):
         horz.addWidget(self.updatemeta)
         self.mergehide.append(self.updatemeta)
         self.mergeupdateshow.append(self.updatemeta)
-
-        self.updateepubcover = QCheckBox(_('Update EPUB Cover?'),self)
-        self.updateepubcover.setToolTip(_('Update book cover image from site or defaults (if found) <i>inside</i> the EPUB when EPUB is updated.'))
-        self.updateepubcover.setChecked(self.prefs['updateepubcover'])
-        horz.addWidget(self.updateepubcover)
-        self.mergehide.append(self.updateepubcover)
 
         self.gbl.addLayout(horz)
 
@@ -446,9 +443,6 @@ class AddNewDialog(SizePersistedDialog):
         self.updatemeta.setChecked(self.prefs['updatemeta'])
         # self.bgmeta.setChecked(self.prefs['bgmeta'])
 
-        if not self.merge:
-            self.updateepubcover.setChecked(self.prefs['updateepubcover'])
-
         self.url.setText(url_list_text)
         if url_list_text:
             self.button_box.button(QDialogButtonBox.Ok).setFocus()
@@ -486,14 +480,12 @@ class AddNewDialog(SizePersistedDialog):
             'collision': unicode(self.collision.currentText()),
             'updatemeta': self.updatemeta.isChecked(),
             'bgmeta': False, # self.bgmeta.isChecked(),
-            'updateepubcover': self.updateepubcover.isChecked(),
             'smarten_punctuation':self.prefs['smarten_punctuation'],
             'do_wordcount':self.prefs['do_wordcount'],
             }
 
         if self.merge:
             retval['fileform']=='epub'
-            retval['updateepubcover']=True
             if self.newmerge:
                 retval['updatemeta']=True
                 retval['collision']=ADDNEW
@@ -581,35 +573,41 @@ class UserPassDialog(QDialog):
         QDialog.__init__(self, gui)
         self.status=False
 
-        self.l = QGridLayout()
+        self.l = QVBoxLayout()
         self.setLayout(self.l)
+
+        grid = QGridLayout()
+        self.l.addLayout(grid)
 
         if exception and exception.passwdonly:
             self.setWindowTitle(_('Password'))
-            self.l.addWidget(QLabel(_("Author requires a password for this story(%s).")%exception.url),0,0,1,2)
+            grid.addWidget(QLabel(_("Author requires a password for this story(%s).")%exception.url),0,0,1,2)
             # user isn't used, but it's easier to still have it for
             # post processing.
             self.user = FakeLineEdit()
         else:
             self.setWindowTitle(_('User/Password'))
-            self.l.addWidget(QLabel(_("%s requires you to login to download this story.")%site),0,0,1,2)
+            grid.addWidget(QLabel(_("%s requires you to login to download this story.")%site),0,0,1,2)
 
-            self.l.addWidget(QLabel(_("User:")),1,0)
+            grid.addWidget(QLabel(_("User:")),1,0)
             self.user = QLineEdit(self)
-            self.l.addWidget(self.user,1,1)
+            grid.addWidget(self.user,1,1)
 
-        self.l.addWidget(QLabel(_("Password:")),2,0)
+        grid.addWidget(QLabel(_("Password:")),2,0)
         self.passwd = QLineEdit(self)
         self.passwd.setEchoMode(QLineEdit.Password)
-        self.l.addWidget(self.passwd,2,1)
+        grid.addWidget(self.passwd,2,1)
+
+        horz = QHBoxLayout()
+        self.l.addLayout(horz)
 
         self.ok_button = QPushButton(_('OK'), self)
         self.ok_button.clicked.connect(self.ok)
-        self.l.addWidget(self.ok_button,3,0)
+        horz.addWidget(self.ok_button)
 
         self.cancel_button = QPushButton(_('Cancel'), self)
         self.cancel_button.clicked.connect(self.cancel)
-        self.l.addWidget(self.cancel_button,3,1)
+        horz.addWidget(self.cancel_button)
 
         self.resize(self.sizeHint())
 
@@ -627,13 +625,15 @@ def LoopProgressDialog(gui,
                        finish_function,
                        init_label=_("Fetching metadata for stories..."),
                        win_title=_("Downloading metadata for stories"),
-                       status_prefix=_("Fetched metadata for")):
+                       status_prefix=_("Fetched metadata for"),
+                       disable_cancel=False):
     ld = _LoopProgressDialog(gui,
                              book_list,
                              foreach_function,
                              init_label,
                              win_title,
-                             status_prefix)
+                             status_prefix,
+                             disable_cancel)
 
     # Mac OS X gets upset if the finish_function is called from inside
     # the real _LoopProgressDialog class.
@@ -651,7 +651,8 @@ class _LoopProgressDialog(QProgressDialog):
                  foreach_function,
                  init_label=_("Fetching metadata for stories..."),
                  win_title=_("Downloading metadata for stories"),
-                 status_prefix=_("Fetched metadata for")):
+                 status_prefix=_("Fetched metadata for"),
+                 disable_cancel=False):
         QProgressDialog.__init__(self,
                                  init_label,
                                  _('Cancel'), 0, len(book_list), gui)
@@ -670,12 +671,26 @@ class _LoopProgressDialog(QProgressDialog):
         self.setLabelText('%s %d / %d' % (self.status_prefix, self.i, len(self.book_list)))
         self.setValue(self.i)
 
+        if disable_cancel:
+            self.setCancelButton(None)
+            self.reject = self.disabled_reject
+            self.closeEvent = self.disabled_closeEvent
+
         ## self.do_loop does QTimer.singleShot on self.do_loop also.
         ## A weird way to do a loop, but that was the example I had.
         ## 100 instead of 0 on the first go due to Win10(and later
         ## qt6) not displaying dialog properly.
         QTimer.singleShot(100, self.do_loop)
         self.exec_()
+
+    # used when disable_cancel = True
+    def disabled_reject(self):
+        pass
+
+    # used when disable_cancel = True
+    def disabled_closeEvent(self, event):
+        if event.spontaneous():
+            event.ignore()
 
     def updateStatus(self):
         remaining_time_string = ''
@@ -888,11 +903,6 @@ class UpdateExistingDialog(SizePersistedDialog):
         self.updatemeta.setChecked(self.prefs['updatemeta'])
         horz.addWidget(self.updatemeta)
 
-        self.updateepubcover = QCheckBox(_('Update EPUB Cover?'),self)
-        self.updateepubcover.setToolTip(_('Update book cover image from site or defaults (if found) <i>inside</i> the EPUB when EPUB is updated.'))
-        self.updateepubcover.setChecked(self.prefs['updateepubcover'])
-        horz.addWidget(self.updateepubcover)
-
         self.bgmeta = QCheckBox(_('Background Metadata?'),self)
         self.bgmeta.setToolTip(_("Collect Metadata from sites in a Background process.<br />This returns control to you quicker while updating, but you won't be asked for username/passwords or if you are an adult--stories that need those will just fail."))
         self.bgmeta.setChecked(self.prefs['bgmeta'])
@@ -944,7 +954,6 @@ class UpdateExistingDialog(SizePersistedDialog):
             'collision': unicode(self.collision.currentText()),
             'updatemeta': self.updatemeta.isChecked(),
             'bgmeta': self.bgmeta.isChecked(),
-            'updateepubcover': self.updateepubcover.isChecked(),
             'smarten_punctuation':self.prefs['smarten_punctuation'],
             'do_wordcount':self.prefs['do_wordcount'],
             }
@@ -1025,6 +1034,7 @@ class StoryListTableWidget(QTableWidget):
     def remove_selected_rows(self):
         self.setFocus()
         rows = self.selectionModel().selectedRows()
+        rows = sorted(rows, key=lambda x: x.row(), reverse=True)
         if len(rows) == 0:
             return
         message = '<p>'+_('Are you sure you want to remove this book from the list?')
@@ -1033,7 +1043,7 @@ class StoryListTableWidget(QTableWidget):
         if not confirm(message,'fff_delete_item', self):
             return
         first_sel_row = self.currentRow()
-        for selrow in reversed(rows):
+        for selrow in rows:
             self.removeRow(selrow.row())
         if first_sel_row < self.rowCount():
             self.select_and_scroll_to_row(first_sel_row)
@@ -1101,6 +1111,7 @@ class RejectListTableWidget(QTableWidget):
     def remove_selected_rows(self):
         self.setFocus()
         rows = self.selectionModel().selectedRows()
+        rows = sorted(rows, key=lambda x: x.row(), reverse=True)
         if len(rows) == 0:
             return
         message = '<p>'+_('Are you sure you want to remove this URL from the list?')
@@ -1109,7 +1120,7 @@ class RejectListTableWidget(QTableWidget):
         if not confirm(message,'fff_rejectlist_delete_item_again', self):
             return
         first_sel_row = self.currentRow()
-        for selrow in reversed(rows):
+        for selrow in rows:
             self.removeRow(selrow.row())
         if first_sel_row < self.rowCount():
             self.select_and_scroll_to_row(first_sel_row)
@@ -1574,24 +1585,30 @@ class EmailPassDialog(QDialog):
         QDialog.__init__(self, gui)
         self.status=False
 
-        self.l = QGridLayout()
+        self.l = QVBoxLayout()
         self.setLayout(self.l)
 
-        self.setWindowTitle(_('Password'))
-        self.l.addWidget(QLabel(_("Enter Email Password for %s:")%user),0,0,1,2)
+        grid = QGridLayout()
+        self.l.addLayout(grid)
 
-        # self.l.addWidget(QLabel(_("Password:")),1,0)
+        self.setWindowTitle(_('Password'))
+        grid.addWidget(QLabel(_("Enter Email Password for %s:")%user),0,0,1,2)
+
+        # grid.addWidget(QLabel(_("Password:")),1,0)
         self.passwd = QLineEdit(self)
         self.passwd.setEchoMode(QLineEdit.Password)
-        self.l.addWidget(self.passwd,1,0,1,2)
+        grid.addWidget(self.passwd,1,0,1,2)
+
+        horz = QHBoxLayout()
+        self.l.addLayout(horz)
 
         self.ok_button = QPushButton(_('OK'), self)
         self.ok_button.clicked.connect(self.ok)
-        self.l.addWidget(self.ok_button,2,0)
+        horz.addWidget(self.ok_button,2,0)
 
         self.cancel_button = QPushButton(_('Cancel'), self)
         self.cancel_button.clicked.connect(self.cancel)
-        self.l.addWidget(self.cancel_button,2,1)
+        horz.addWidget(self.cancel_button,2,1)
 
         # set stretch factors the same.
         self.l.setColumnStretch(0,1)

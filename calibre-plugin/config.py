@@ -23,6 +23,7 @@ from PyQt5.Qt import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
 
 from calibre.gui2 import dynamic, info_dialog
 from calibre.gui2.complete2 import EditWithComplete
+from calibre.gui2.dialogs.confirm_delete import confirm
 from fanficfare.six import text_type as unicode
 
 try:
@@ -278,7 +279,6 @@ class ConfigWidget(QWidget):
             prefs['collision'] = save_collisions[unicode(self.basic_tab.collision.currentText())]
             prefs['updatemeta'] = self.basic_tab.updatemeta.isChecked()
             prefs['bgmeta'] = self.basic_tab.bgmeta.isChecked()
-            prefs['updateepubcover'] = self.basic_tab.updateepubcover.isChecked()
             prefs['keeptags'] = self.basic_tab.keeptags.isChecked()
             prefs['mark'] = self.basic_tab.mark.isChecked()
             prefs['mark_success'] = self.basic_tab.mark_success.isChecked()
@@ -333,6 +333,7 @@ class ConfigWidget(QWidget):
             prefs['calibre_gen_cover'] = self.calibrecover_tab.calibre_gen_cover.isChecked()
             prefs['plugin_gen_cover'] = self.calibrecover_tab.plugin_gen_cover.isChecked()
             prefs['gcnewonly'] = self.calibrecover_tab.gcnewonly.isChecked()
+            prefs['covernewonly'] = self.calibrecover_tab.covernewonly.isChecked()
             gc_site_settings = {}
             for (site,combo) in six.iteritems(self.calibrecover_tab.gc_dropdowns):
                 val = unicode(combo.itemData(combo.currentIndex()))
@@ -481,11 +482,6 @@ class BasicTab(QWidget):
         self.updatemeta.setToolTip(_("On each download, FanFicFare offers an option to update Calibre's metadata (title, author, URL, tags, custom columns, etc) from the web site. <br />This sets whether that will default to on or off. <br />Columns set to 'New Only' in the column tabs will only be set for new books."))
         self.updatemeta.setChecked(prefs['updatemeta'])
         horz.addWidget(self.updatemeta)
-
-        self.updateepubcover = QCheckBox(_('Default Update EPUB Cover when Updating EPUB?'),self)
-        self.updateepubcover.setToolTip(_("On each download, FanFicFare offers an option to update the book cover image <i>inside</i> the EPUB from the web site when the EPUB is updated.<br />This sets whether that will default to on or off."))
-        self.updateepubcover.setChecked(prefs['updateepubcover'])
-        horz.addWidget(self.updateepubcover)
 
         self.bgmeta = QCheckBox(_('Default Background Metadata?'),self)
         self.bgmeta.setToolTip(_("On each download, FanFicFare offers an option to Collect Metadata from sites in a Background process.<br />This returns control to you quicker while updating, but you won't be asked for username/passwords or if you are an adult--stories that need those will just fail.<br />Only available for Update/Overwrite of existing books in case URL given isn't canonical or matches to existing book by Title/Author."))
@@ -997,7 +993,7 @@ class CalibreCoverTab(QWidget):
 
         self.gencov_elements=[] ## used to disable/enable when gen
                                 ## cover is off/on.  This is more
-                                ## about being a visual que than real
+                                ## about being a visual cue than real
                                 ## necessary function.
 
         topl = self.l = QVBoxLayout()
@@ -1041,9 +1037,17 @@ class CalibreCoverTab(QWidget):
         horz.addWidget(self.updatecalcover)
         self.l.addLayout(horz)
 
+        self.covernewonly = QCheckBox(_("Set Calibre Cover Only for New Books"),self)
+        self.covernewonly.setToolTip(_("Set the Calibre cover from EPUB only for new\nbooks, not updates to existing books."))
+        self.covernewonly.setChecked(prefs['covernewonly'])
+        horz = QHBoxLayout()
+        horz.addItem(QtGui.QSpacerItem(20, 1))
+        horz.addWidget(self.covernewonly)
+        self.l.addLayout(horz)
+        self.l.addSpacing(5)
+
         tooltip = _("Generate a Calibre book cover image when Calibre metadata is updated.<br />"
-                    "Defaults to 'Yes, Always' for backward compatibility and because %(gc)s(Plugin)"
-                    " will only run if configured for Default or site.")%no_trans
+                    "Note that %(gc)s(Plugin) will only run if there is a %(gc)s setting configured below for Default or the appropriate site.")%no_trans
         horz = QHBoxLayout()
         label = QLabel(_('Generate Calibre Cover:'))
         label.setToolTip(tooltip)
@@ -1051,19 +1055,33 @@ class CalibreCoverTab(QWidget):
         self.gencalcover = QComboBox(self)
         for i in gencalcover_order:
             self.gencalcover.addItem(i)
-        # back compat.  If has own value, use.
-        # if prefs['gencalcover']:
         self.gencalcover.setCurrentIndex(self.gencalcover.findText(prefs_save_options[prefs['gencalcover']]))
-        # elif prefs['gencover']: # doesn't have own val, set YES if old value set.
-        #     self.gencalcover.setCurrentIndex(self.gencalcover.findText(prefs_save_options[SAVE_YES]))
-        # else: # doesn't have own value, old value not set, NO.
-        #     self.gencalcover.setCurrentIndex(self.gencalcover.findText(prefs_save_options[SAVE_NO]))
 
         self.gencalcover.setToolTip(tooltip)
         label.setBuddy(self.gencalcover)
         horz.addWidget(self.gencalcover)
         self.l.addLayout(horz)
         self.gencalcover.currentIndexChanged.connect(self.endisable_elements)
+
+        horz = QHBoxLayout()
+        horz.addItem(QtGui.QSpacerItem(20, 1))
+        vert = QVBoxLayout()
+        horz.addLayout(vert)
+        self.l.addLayout(horz)
+
+        self.gcnewonly = QCheckBox(_("Generate Covers Only for New Books")%no_trans,self)
+        self.gcnewonly.setToolTip(_("Default is to generate a cover any time the calibre metadata is"
+                                    " updated.<br />Used for both Calibre and Plugin generated covers."))
+        self.gcnewonly.setChecked(prefs['gcnewonly'])
+        vert.addWidget(self.gcnewonly)
+        self.gencov_elements.append(self.gcnewonly)
+
+        self.gc_polish_cover = QCheckBox(_("Inject/update the generated cover inside EPUB"),self)
+        self.gc_polish_cover.setToolTip(_("Calibre's Polish feature will be used to inject or update the generated"
+                                          " cover into the EPUB ebook file.<br />Used for both Calibre and Plugin generated covers."))
+        self.gc_polish_cover.setChecked(prefs['gc_polish_cover'])
+        vert.addWidget(self.gc_polish_cover)
+        self.gencov_elements.append(self.gc_polish_cover)
 
         # can't be local or it's destroyed when __init__ is done and
         # connected things don't fire.
@@ -1073,7 +1091,9 @@ class CalibreCoverTab(QWidget):
         self.gencov_gb.setLayout(horz)
 
         self.plugin_gen_cover = QRadioButton(_('Plugin %(gc)s')%no_trans,self)
-        self.plugin_gen_cover.setToolTip(_("Use plugin to create covers.  Additional settings are below."))
+        self.plugin_gen_cover.setToolTip(_("Use the %(gc)s plugin to create covers.<br>"
+                                           "Requires that you have the the %(gc)s plugin installed.<br>"
+                                           "Additional settings are below."%no_trans))
         self.gencov_rdgrp.addButton(self.plugin_gen_cover)
         # always, new only, when no cover from site, inject yes/no...
         self.plugin_gen_cover.setChecked(prefs['plugin_gen_cover'])
@@ -1094,20 +1114,6 @@ class CalibreCoverTab(QWidget):
 
         #self.l.addLayout(horz)
         self.l.addWidget(self.gencov_gb)
-
-        self.gcnewonly = QCheckBox(_("Generate Covers Only for New Books")%no_trans,self)
-        self.gcnewonly.setToolTip(_("Default is to generate a cover any time the calibre metadata is"
-                                    " updated.<br />Used for both Calibre and Plugin generated covers."))
-        self.gcnewonly.setChecked(prefs['gcnewonly'])
-        self.l.addWidget(self.gcnewonly)
-        self.gencov_elements.append(self.gcnewonly)
-
-        self.gc_polish_cover = QCheckBox(_("Inject/update the cover inside EPUB"),self)
-        self.gc_polish_cover.setToolTip(_("Calibre's Polish feature will be used to inject or update the generated"
-                                          " cover into the EPUB ebook file.<br />Used for both Calibre and Plugin generated covers."))
-        self.gc_polish_cover.setChecked(prefs['gc_polish_cover'])
-        self.l.addWidget(self.gc_polish_cover)
-        self.gencov_elements.append(self.gc_polish_cover)
 
         self.gcp_gb = QGroupBox(_("%(gc)s(Plugin) Settings")%no_trans)
         topl.addWidget(self.gcp_gb)

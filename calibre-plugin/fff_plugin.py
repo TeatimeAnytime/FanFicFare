@@ -25,7 +25,6 @@ from fanficfare.six import ensure_text, string_types, text_type as unicode
 #             profile.print_stats()
 #     return profiled_func
 
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ from calibre_plugins.fanficfare_plugin.dialogs import (
     LoopProgressDialog, UserPassDialog, AboutDialog, CollectURLDialog,
     RejectListDialog, EmailPassDialog,
     save_collisions, question_dialog_all,
-    NotGoingToDownload, RejectUrlEntry )
+    NotGoingToDownload, RejectUrlEntry)
 
 # because calibre immediately transforms html into zip and don't want
 # to have an 'if html'.  db.has_format is cool with the case mismatch,
@@ -597,7 +596,6 @@ class FanFicFarePlugin(InterfaceAction):
                         'collision': extraoptions.get('collision',save_collisions[prefs['collision']]),
                         'updatemeta': prefs['updatemeta'],
                         'bgmeta': False,
-                        'updateepubcover': prefs['updateepubcover'],
                         'smarten_punctuation':prefs['smarten_punctuation'],
                         'do_wordcount':prefs['do_wordcount'],
                         'add_tag':prefs['imaptags'],
@@ -1235,8 +1233,7 @@ class FanFicFarePlugin(InterfaceAction):
                            options={'fileform':'epub',
                                     'collision':ADDNEW,
                                     'updatemeta':True,
-                                    'bgmeta':False,
-                                    'updateepubcover':True},
+                                    'bgmeta':False},
                            merge=False):
         '''
         Update passed in book dict with metadata from website and
@@ -1258,7 +1255,6 @@ class FanFicFarePlugin(InterfaceAction):
         collision = book['collision'] = options['collision']
         updatemeta= options['updatemeta']
         bgmeta= options['bgmeta']
-        updateepubcover= options['updateepubcover']
 
         ## Check reject list.  Redundant with below for when story URL
         ## changes, but also kept here to avoid network hit in most
@@ -1666,8 +1662,7 @@ class FanFicFarePlugin(InterfaceAction):
                             options={'fileform':'epub',
                                      'collision':ADDNEW,
                                      'updatemeta':True,
-                                     'bgmeta':False,
-                                     'updateepubcover':True},
+                                     'bgmeta':False},
                             merge=False):
         '''
         Called by LoopProgressDialog to start story downloads BG processing.
@@ -1796,8 +1791,7 @@ class FanFicFarePlugin(InterfaceAction):
                           options={'fileform':'epub',
                                    'collision':ADDNEW,
                                    'updatemeta':True,
-                                   'bgmeta':False,
-                                   'updateepubcover':True},
+                                   'bgmeta':False},
                           errorcol_label=None,
                           lastcheckedcol_label=None):
 
@@ -2137,7 +2131,8 @@ class FanFicFarePlugin(InterfaceAction):
                                partial(self.update_books_finish, options=options),
                                init_label=_("Updating calibre for FanFiction stories..."),
                                win_title=_("Update calibre for FanFiction stories"),
-                               status_prefix=_("Updated"))
+                               status_prefix=_("Updated"),
+                               disable_cancel=True)
 
     def update_error_column(self,payload):
         '''Update custom error column if configured.'''
@@ -2146,14 +2141,14 @@ class FanFicFarePlugin(InterfaceAction):
         lastcheckedcol_label = self.get_custom_col_label(prefs['lastcheckedcol'])
         if prefs['mark'] or errorcol_label or lastcheckedcol_label:
             self.previous = self.gui.library_view.currentIndex() # used by update_books_finish.
-            self.gui.status_bar.show_message(_('Adding/Updating %s BAD books.')%len(book_list))
             LoopProgressDialog(self.gui,
                                book_list,
                                partial(self.update_error_column_loop, db=self.gui.current_db, errorcol_label=errorcol_label, lastcheckedcol_label=lastcheckedcol_label),
                                partial(self.update_books_finish, options=options),
                                init_label=_("Updating calibre for BAD FanFiction stories..."),
                                win_title=_("Update calibre for BAD FanFiction stories"),
-                               status_prefix=_("Updated"))
+                               status_prefix=_("Updated"),
+                               disable_cancel=True)
 
     def update_error_column_loop(self,book,db=None,errorcol_label=None,lastcheckedcol_label=None):
         if book['calibre_id'] and errorcol_label:
@@ -2466,7 +2461,8 @@ class FanFicFarePlugin(InterfaceAction):
 
         logger.info("cover_image:%s"%book['all_metadata']['cover_image'])
         # updating calibre cover from book.
-        if options['fileform'] == 'epub' and (
+        if options['fileform'] == 'epub' and \
+            ( book['added'] or not prefs['covernewonly'] ) and (
             (prefs['updatecover'] and not prefs['updatecalcover']) ## backward compat
             or prefs['updatecalcover'] == SAVE_YES ## yes, always
             or (prefs['updatecalcover'] == SAVE_YES_IF_IMG ## yes, if image.
@@ -2479,7 +2475,6 @@ class FanFicFarePlugin(InterfaceAction):
                 except:
                     logger.info("Failed to set_cover, skipping")
 
-        # First, should cover generation happen at all?
         # logger.debug("book['all_metadata']['cover_image']:%s"%book['all_metadata']['cover_image'])
         if (book['added'] or not prefs['gcnewonly']) and ( # skip if not new book and gcnewonly is True
             prefs['gencalcover'] == SAVE_YES ## yes, always

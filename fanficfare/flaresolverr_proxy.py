@@ -68,7 +68,7 @@ class FlareSolverr_ProxyFetcher(RequestsFetcher):
         fs_data = {'cmd': cmd,
                    'url':url,
                    #'userAgent': 'Mozilla/5.0',
-                   'maxTimeout': 30000,
+                   'maxTimeout': int(self.getConfig("flaresolverr_proxy_timeout","60000")),
                    # download:True causes response to be base64 encoded
                    # which makes images work.
                    'cookies':cookiejar_to_jsonable(self.get_cookiejar()),
@@ -131,7 +131,9 @@ class FlareSolverr_ProxyFetcher(RequestsFetcher):
             if data is None:
                 # Without download (or with FlareSolverr v2), don't
                 # need base64 decode, and image downloads won't work.
-                if 'image' in resp.json['solution']['headers']['content-type']:
+                if 'headers' in resp.json['solution'] and \
+                        'content-type' in resp.json['solution']['headers'] and \
+                        'image' in resp.json['solution']['headers']['content-type']:
                     raise exceptions.HTTPErrorFFF(
                         url,
                         428, # 404 & 410 trip StoryDoesNotExist
@@ -150,11 +152,12 @@ class FlareSolverr_ProxyFetcher(RequestsFetcher):
                                # error_msg through to the user.
             data = resp.json['message']
         if status_code != 200:
-                raise exceptions.HTTPErrorFFF(
-                    ensure_text(url),
-                    status_code,
-                    ensure_text(data)
-                    )
+            raise exceptions.HTTPErrorFFF(
+                ensure_text(url),
+                status_code,
+                ensure_text(data),
+                data
+                )
 
         return FetcherResponse(data,
                                url,
@@ -183,12 +186,13 @@ def cookiejson_to_jarable(data):
         ## 30000000000 == 2920-08-30 05:20:00.  If 900 years isn't
         ## enough, somebody can fix it then.
         ## (current global_cookie/
-        # logger.debug(c['expires'])
-        if c['expires'] > 30000000000:
-            c['expires'] = 30000000000
+        expireKey = 'expires' if 'expires' in c else 'expiry'
+        logger.debug("expireKey:%s"%expireKey)
+        if c[expireKey] > 30000000000:
+            c[expireKey] = 30000000000
             # logger.debug(c['name'])
             # import datetime
-            # logger.debug(datetime.datetime.utcfromtimestamp(c['expires']))
+            # logger.debug(datetime.datetime.utcfromtimestamp(c[expireKey]))
 
         retval.append(Cookie(0, # version
                              c['name'],
@@ -201,8 +205,8 @@ def cookiejson_to_jarable(data):
                              c['path'],
                              c['path'] == None or c['path'] == '', # path_specified,
                              c['secure'],
-                             c['expires'],
-                             c['expires'] == -1, # discard
+                             c[expireKey],
+                             c[expireKey] == -1, # discard
                              None, # comment,
                              None, # comment_url,
                              {}, # rest

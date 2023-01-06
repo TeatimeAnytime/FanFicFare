@@ -28,7 +28,7 @@ import string
 import os, sys, platform
 
 
-version="4.14.9"
+version="4.19.0"
 os.environ['CURRENT_VERSION_ID']=version
 
 global_cache = 'global_cache'
@@ -455,7 +455,6 @@ def do_download(arg,
                     return
 
         if update_story and not options.force:
-            urlchaptercount = int(adapter.getStoryMetadataOnly().getMetadata('numChapters').replace(',',''))
             # returns int adjusted for start-end range.
             urlchaptercount = adapter.getStoryMetadataOnly().getChapterCount()
 

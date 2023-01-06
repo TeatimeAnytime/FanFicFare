@@ -222,9 +222,6 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
                                             options['fileform'],
                                             options['personal.ini'])
 
-            if not options['updateepubcover'] and 'epub_for_update' in book and book['collision'] in (UPDATE, UPDATEALWAYS):
-                configuration.set("overrides","never_make_cover","true")
-
             # images only for epub, html, even if the user mistakenly
             # turned it on else where.
             if options['fileform'] not in ("epub","html"):
@@ -397,7 +394,11 @@ def do_download_for_worker(book,options,merge,notification=lambda x,y:x):
                 options['do_wordcount'] == SAVE_YES_UNLESS_SITE and not story.getMetadataRaw('numWords') ):
                 try:
                     wordcount = get_word_count(outfile)
-                   # logger.info("get_word_count:%s"%wordcount)
+                    # logger.info("get_word_count:%s"%wordcount)
+                    # clear cache for the rather unusual case of
+                    # numWords affecting other previously cached
+                    # entries.
+                    story.clear_processed_metadata_cache()
                     story.setMetadata('numWords',wordcount)
                     writer.writeStory(outfilename=outfile, forceOverwrite=True)
                     book['all_metadata'] = story.getAllMetadata(removeallentities=True)
